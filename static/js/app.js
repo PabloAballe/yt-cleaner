@@ -10,6 +10,13 @@ let currentCategory = "general"; // "general" | "entertainment" | "music" | "edu
 let activeTab = "all"; // "all" | "gems" | "consolidated"
 let hideClickbaitActive = false;
 let currentLang = localStorage.getItem('yt_cleaner_lang') || 'mixed';
+let groundedModeActive = localStorage.getItem('yt_cleaner_grounded') === 'true';
+let activeTimeBudget = "all"; // "all" | "pills" | "standard" | "deep"
+let gemsBoostWeight = parseInt(localStorage.getItem('yt_cleaner_gems_boost')) || 50;
+let youtubePlayer = null;
+let activeVideoSponsorSegments = [];
+let playerCheckInterval = null;
+let activePlayingVideoId = null;
 
 // Local Memory State (localStorage with try-catch fallback)
 let channelWeights = {};
@@ -153,6 +160,56 @@ document.addEventListener("DOMContentLoaded", () => {
             btn.className = "lang-btn inline-flex items-center justify-center whitespace-nowrap rounded-md px-2.5 py-1 text-[10px] font-semibold transition-all focus-visible:outline-none text-muted-foreground hover:text-foreground font-heading";
         }
     });
+
+    // Grounded Feed CSS styles injection (Option 1)
+    const groundedStyle = document.createElement('style');
+    groundedStyle.innerHTML = `
+        #feed-grid.grounded-feed img {
+            filter: blur(20px) grayscale(100%) !important;
+            opacity: 0.65 !important;
+            transition: filter 0.4s ease, opacity 0.4s ease, transform 0.4s ease !important;
+        }
+        #feed-grid.grounded-feed .group:hover img {
+            filter: none !important;
+            opacity: 1 !important;
+            transform: scale(1.03) !important;
+        }
+        .scrollbar-none::-webkit-scrollbar {
+            display: none !important;
+        }
+        .scrollbar-none {
+            -ms-overflow-style: none !important;
+            scrollbar-width: none !important;
+        }
+    `;
+    document.head.appendChild(groundedStyle);
+
+    // Initial state Grounded UI
+    const toggleGrounded = document.getElementById("toggle-grounded-mode");
+    if (toggleGrounded) {
+        if (groundedModeActive) {
+            toggleGrounded.classList.add("text-emerald-400", "border-emerald-500/30", "bg-emerald-950/40");
+            toggleGrounded.classList.remove("text-muted-foreground", "bg-card");
+            feedGrid.classList.add("grounded-feed");
+        } else {
+            toggleGrounded.classList.remove("text-emerald-400", "border-emerald-500/30", "bg-emerald-950/40");
+            toggleGrounded.classList.add("text-muted-foreground", "bg-card");
+            feedGrid.classList.remove("grounded-feed");
+        }
+    }
+
+    // Gems Booster slider initialization (Option 5)
+    const slider = document.getElementById("gems-boost-slider");
+    if (slider) {
+        slider.value = gemsBoostWeight;
+        updateGemsSliderLabel(gemsBoostWeight);
+    }
+
+    // Dynamically request YouTube player API script (Option 2)
+    const tag = document.createElement('script');
+    tag.src = "https://www.youtube.com/iframe_api";
+    const firstScriptTag = document.getElementsByTagName('script')[0];
+    firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
 
     fetchInitialFeed();
     setupEventListeners();
@@ -352,6 +409,70 @@ function setupEventListeners() {
                     fetchInitialFeed();
                 }
                 input.value = "";
+            }
+        });
+    }
+
+    // Grounded Mode toggle click (Option 1)
+    const toggleGroundedBtn = document.getElementById("toggle-grounded-mode");
+    if (toggleGroundedBtn) {
+        toggleGroundedBtn.addEventListener("click", () => {
+            groundedModeActive = !groundedModeActive;
+            localStorage.setItem('yt_cleaner_grounded', groundedModeActive);
+            
+            if (groundedModeActive) {
+                toggleGroundedBtn.classList.add("text-emerald-400", "border-emerald-500/30", "bg-emerald-950/40");
+                toggleGroundedBtn.classList.remove("text-muted-foreground", "bg-card");
+                feedGrid.classList.add("grounded-feed");
+            } else {
+                toggleGroundedBtn.classList.remove("text-emerald-400", "border-emerald-500/30", "bg-emerald-950/40");
+                toggleGroundedBtn.classList.add("text-muted-foreground", "bg-card");
+                feedGrid.classList.remove("grounded-feed");
+            }
+        });
+    }
+
+    // Time budget filter buttons click (Option 4)
+    document.querySelectorAll(".time-filter-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const range = btn.getAttribute("data-range");
+            activeTimeBudget = range;
+            
+            document.querySelectorAll(".time-filter-btn").forEach(b => {
+                const bRange = b.getAttribute("data-range");
+                if (bRange === range) {
+                    b.className = "time-filter-btn inline-flex items-center justify-center whitespace-nowrap rounded-md px-2.5 py-1 text-[10px] font-bold transition-all focus-visible:outline-none bg-background text-foreground shadow font-heading";
+                } else {
+                    b.className = "time-filter-btn inline-flex items-center justify-center whitespace-nowrap rounded-md px-2.5 py-1 text-[10px] font-semibold transition-all focus-visible:outline-none text-muted-foreground hover:text-foreground font-heading";
+                }
+            });
+            
+            processAndRenderVideos(currentRawVideos, false);
+        });
+    });
+
+    // Gems Booster slider change (Option 5)
+    const gemsSlider = document.getElementById("gems-boost-slider");
+    if (gemsSlider) {
+        gemsSlider.addEventListener("input", (e) => {
+            const val = parseInt(e.target.value);
+            gemsBoostWeight = val;
+            localStorage.setItem('yt_cleaner_gems_boost', val);
+            updateGemsSliderLabel(val);
+            processAndRenderVideos(currentRawVideos, false);
+        });
+    }
+
+    // Close Player Modal actions (Option 2)
+    const closePlayerBtn = document.getElementById("close-player-btn");
+    if (closePlayerBtn) {
+        closePlayerBtn.addEventListener("click", closePlayerModal);
+    }
+    const playerModalBackdrop = document.getElementById("player-modal");
+    if (playerModalBackdrop) {
+        playerModalBackdrop.addEventListener("click", (e) => {
+            if (e.target === playerModalBackdrop) {
+                closePlayerModal();
             }
         });
     }
@@ -654,6 +775,18 @@ function processAndRenderVideos(rawVideosList, isAppend = false) {
             }
             return true;
         });
+
+        // Filter by Time Budget range (Option 4)
+        eligible = eligible.filter(v => {
+            if (activeTimeBudget === "pills") {
+                return v.duration > 0 && v.duration < 300; // Under 5 mins
+            } else if (activeTimeBudget === "standard") {
+                return v.duration >= 300 && v.duration <= 1500; // 5 to 25 mins
+            } else if (activeTimeBudget === "deep") {
+                return v.duration > 1500; // Over 25 mins
+            }
+            return true; // All Time
+        });
         
         eligible = eligible.filter(v => {
             const chanWeight = channelWeights[v.channel] || 0;
@@ -694,6 +827,21 @@ function processAndRenderVideos(rawVideosList, isAppend = false) {
                 reasons.push(`Clickbait detected: ${clickbait.reason} (-25 pts)`);
             }
             
+            // Gems Boosting/Mainstream blocker (Option 5)
+            const isGem = video.view_count > 0 && video.view_count < 50000;
+            const boostFactor = Math.round((gemsBoostWeight - 50) * 0.6); // Range: -30 to +30
+            if (isGem) {
+                score += boostFactor;
+                if (boostFactor !== 0) {
+                    reasons.push(`Emerging Gem priority boost (${boostFactor > 0 ? '+' : ''}${boostFactor} pts)`);
+                }
+            } else {
+                score -= boostFactor;
+                if (boostFactor !== 0) {
+                    reasons.push(`Consolidated mainstream discount (${boostFactor > 0 ? '-' : '+'}${Math.abs(boostFactor)} pts)`);
+                }
+            }
+
             const scoredVideo = { ...video };
             scoredVideo.score = Math.max(0, Math.min(100, score));
             scoredVideo.reasons = reasons.length > 0 ? reasons : ["Passed quality checks (Neutral)"];
@@ -782,7 +930,7 @@ function renderGrid(videosList, isAppend = false) {
             <div>
                 <!-- Thumbnail -->
                 <div class="relative aspect-video w-full overflow-hidden bg-muted">
-                    <a href="${video.url}" target="_blank" class="block w-full h-full">
+                    <a href="${video.url}" target="_blank" onclick="event.preventDefault(); openPlayerModal('${video.id}', '${video.title.replace(/'/g, "\\'")}', '${video.channel.replace(/'/g, "\\'")}')" class="block w-full h-full">
                         <img 
                             src="${video.thumbnail}" 
                             alt="${video.title}" 
@@ -804,7 +952,7 @@ function renderGrid(videosList, isAppend = false) {
                 <!-- Text metadata -->
                 <div class="p-4 space-y-2">
                     <div class="space-y-1">
-                        <a href="${video.url}" target="_blank" class="block">
+                        <a href="${video.url}" target="_blank" onclick="event.preventDefault(); openPlayerModal('${video.id}', '${video.title.replace(/'/g, "\\'")}', '${video.channel.replace(/'/g, "\\'")}')" class="block">
                             <h3 class="text-sm font-semibold tracking-tight line-clamp-2 hover:text-white transition-colors font-sans leading-snug" title="${video.title}">
                                 ${video.title}
                             </h3>
@@ -1112,28 +1260,29 @@ async function fetchSponsorSegmentsBulk(videoIds) {
             headers: {
                 "Content-Type": "application/json"
             },
-            body: JSON.stringify(videoIds)
+            body: JSON.stringify({
+                videoIds: videoIds,
+                categories: ["sponsor"]
+            })
         });
         
         if (response.status === 200) {
             const data = await response.json();
-            if (Array.isArray(data)) {
-                data.forEach(item => {
-                    const videoID = item.videoID;
-                    const segments = item.segments || [];
-                    
-                    // Filter sponsor category segments
-                    const sponsorSegs = segments.filter(seg => seg.category === "sponsor");
-                    if (sponsorSegs.length > 0) {
-                        let totalDuration = 0;
-                        sponsorSegs.forEach(seg => {
-                            if (seg.segment && seg.segment.length >= 2) {
-                                totalDuration += (seg.segment[1] - seg.segment[0]);
+            if (data && typeof data === "object" && !Array.isArray(data)) {
+                Object.entries(data).forEach(([videoID, segments]) => {
+                    if (Array.isArray(segments)) {
+                        const sponsorSegs = segments.filter(seg => seg.category === "sponsor");
+                        if (sponsorSegs.length > 0) {
+                            let totalDuration = 0;
+                            sponsorSegs.forEach(seg => {
+                                if (seg.segment && seg.segment.length >= 2) {
+                                    totalDuration += (seg.segment[1] - seg.segment[0]);
+                                }
+                            });
+                            
+                            if (totalDuration > 0) {
+                                showSponsorBadge(videoID, Math.round(totalDuration));
                             }
-                        });
-                        
-                        if (totalDuration > 0) {
-                            showSponsorBadge(videoID, Math.round(totalDuration));
                         }
                     }
                 });
@@ -1178,4 +1327,162 @@ function showSponsorBadge(videoId, seconds) {
     
     // Refresh lucide icons
     lucide.createIcons();
+}
+
+// Update gems slider text label (Option 5)
+function updateGemsSliderLabel(val) {
+    const label = document.getElementById("gems-boost-value");
+    if (!label) return;
+    if (val > 65) {
+        label.textContent = `High Gems Boost (${val}%)`;
+        label.className = "text-emerald-400 font-mono font-bold";
+    } else if (val < 35) {
+        label.textContent = `Mainstream Boost (${val}%)`;
+        label.className = "text-blue-400 font-mono font-bold";
+    } else {
+        label.textContent = `Balanced (${val}%)`;
+        label.className = "text-amber-400 font-mono font-bold";
+    }
+}
+
+// Open YouTube Player Modal with Sponsor Auto-Skip (Option 2)
+function openPlayerModal(videoId, title, channel) {
+    const modal = document.getElementById("player-modal");
+    const modalTitle = document.getElementById("modal-video-title");
+    const modalChannel = document.getElementById("modal-video-channel");
+    const sponsorStatus = document.getElementById("modal-sponsor-status");
+    
+    if (!modal) return;
+    
+    activePlayingVideoId = videoId;
+    modalTitle.textContent = title;
+    modalChannel.textContent = channel;
+    
+    activeVideoSponsorSegments = [];
+    sponsorStatus.classList.add("hidden");
+    
+    // Fetch sponsor segments for player skipping
+    fetch(`https://sponsor.ajay.app/api/skipSegments?videoID=${videoId}&categories=["sponsor"]`)
+        .then(res => {
+            if (res.status === 200) return res.json();
+            return [];
+        })
+        .then(data => {
+            if (Array.isArray(data) && data.length > 0) {
+                activeVideoSponsorSegments = data.map(seg => seg.segment);
+                sponsorStatus.classList.remove("hidden");
+            }
+        })
+        .catch(err => console.warn("Failed to load skip segments for player:", err));
+
+    modal.classList.remove("hidden");
+    
+    // Load video in YouTube player
+    if (typeof YT !== "undefined" && YT.Player) {
+        if (youtubePlayer && typeof youtubePlayer.loadVideoById === "function") {
+            try {
+                youtubePlayer.loadVideoById(videoId);
+            } catch (e) {
+                fallbackIframeEmbed(videoId);
+            }
+        } else {
+            youtubePlayer = new YT.Player("youtube-player-placeholder", {
+                height: "100%",
+                width: "100%",
+                videoId: videoId,
+                playerVars: {
+                    autoplay: 1,
+                    modestbranding: 1,
+                    rel: 0
+                }
+            });
+        }
+    } else {
+        fallbackIframeEmbed(videoId);
+    }
+    
+    // Start interval listener for auto-skipping sponsor blocks
+    if (playerCheckInterval) clearInterval(playerCheckInterval);
+    playerCheckInterval = setInterval(checkAndSkipSponsors, 250);
+}
+
+// Fallback plain iframe embed if YT API is slow to load
+function fallbackIframeEmbed(videoId) {
+    document.getElementById("youtube-player-placeholder").innerHTML = `
+        <iframe 
+            src="https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1" 
+            class="w-full h-full border-0" 
+            allow="autoplay; encrypted-media" 
+            allowfullscreen
+        ></iframe>
+    `;
+}
+
+// Close player modal and stop video playback (Option 2)
+function closePlayerModal() {
+    const modal = document.getElementById("player-modal");
+    if (modal) {
+        modal.classList.add("hidden");
+    }
+    if (playerCheckInterval) {
+        clearInterval(playerCheckInterval);
+        playerCheckInterval = null;
+    }
+    
+    if (youtubePlayer && typeof youtubePlayer.stopVideo === "function") {
+        try {
+            youtubePlayer.stopVideo();
+        } catch (e) {
+            document.getElementById("youtube-player-placeholder").innerHTML = "";
+        }
+    } else {
+        document.getElementById("youtube-player-placeholder").innerHTML = "";
+    }
+    activePlayingVideoId = null;
+}
+
+// Core auto-skip monitor checking every 250ms (Option 2)
+function checkAndSkipSponsors() {
+    if (!youtubePlayer || typeof youtubePlayer.getCurrentTime !== "function" || typeof youtubePlayer.getPlayerState !== "function") return;
+    if (activeVideoSponsorSegments.length === 0) return;
+    
+    // Get player state (1 means PLAYING)
+    let state = -1;
+    try {
+        state = youtubePlayer.getPlayerState();
+    } catch (e) {
+        return;
+    }
+    
+    if (state !== 1) return;
+    
+    const currentTime = youtubePlayer.getCurrentTime();
+    activeVideoSponsorSegments.forEach(seg => {
+        const start = seg[0];
+        const end = seg[1];
+        
+        if (currentTime >= start && currentTime < end) {
+            youtubePlayer.seekTo(end, true);
+            showSkipToast();
+        }
+    });
+}
+
+// Display temporary badge overlay when skipping sponsor blocks
+function showSkipToast() {
+    let toast = document.getElementById("sponsor-skip-toast");
+    if (!toast) {
+        toast = document.createElement("div");
+        toast.id = "sponsor-skip-toast";
+        toast.className = "absolute bottom-16 left-1/2 transform -translate-x-1/2 bg-amber-500 text-zinc-950 font-bold text-xs px-3.5 py-1.5 rounded-full shadow-lg z-50 flex items-center gap-1.5 animate-bounce select-none pointer-events-none";
+        toast.innerHTML = `<i data-lucide="sparkles" class="h-3.5 w-3.5 flex-shrink-0"></i> Skipped sponsor segment!`;
+        document.getElementById("player-modal").appendChild(toast);
+        lucide.createIcons();
+    }
+    
+    setTimeout(() => {
+        if (toast && toast.parentNode) {
+            toast.remove();
+        }
+    }, 2200);
 }
