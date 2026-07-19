@@ -2,24 +2,6 @@
 
 YT Cleaner is an intelligent, database-free YouTube dashboard that filters out clickbait/Shorts and curates a clean feed dynamically. All learning preferences (favorite channels, keyword weights, and skipped video history) are saved inside your browser's local storage, keeping the application fast, portable, and completely private.
 
-💻 **Run Locally in 1 command:** `python -m uvicorn main:app --reload` (Open [http://localhost:8000](http://localhost:8000))
-
----
-
-## ⚡ Quick Start
-
-### Running Locally
-```bash
-pip install -r requirements.txt
-python -m uvicorn main:app --reload
-```
-
-### Running with Docker
-```bash
-docker build -t yt-cleaner .
-docker run -d -p 8000:8000 yt-cleaner
-```
-
 ---
 
 ## ✨ Features (What it does)
@@ -33,13 +15,18 @@ docker run -d -p 8000:8000 yt-cleaner
 
 ---
 
-## 📦 Directory Tree Structure
+## ⚡ Quick Start
+
+### Running Locally
+```bash
+# Clone the repository and navigate to folder
+pip install -r requirements.txt
+python -m uvicorn main:app --reload
 ```
-yt-cleaner/
-├── static/js/app.js      # Curation engine, localStorage memory & filters (JS)
-├── templates/index.html  # Responsive dashboard HTML (Tailwind & custom fonts)
-├── Dockerfile            # Lightweight, stateless FastAPI Docker container
-├── main.py               # Stateless FastAPI backend (Scraper router)
-├── requirements.txt      # Python dependencies
-└── youtube_client.py     # yt-dlp metadata scraper
+Open [http://localhost:8000](http://localhost:8000) inside your web browser.
+
+### Running with Docker
+```bash
+docker build -t yt-cleaner .
+docker run -d -p 8000:8000 yt-cleaner
 ```
