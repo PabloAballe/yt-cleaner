@@ -9,11 +9,16 @@ let currentCategory = "general"; // "general" | "entertainment" | "music" | "edu
 // Filter State (Local client-side filtering)
 let activeTab = "all"; // "all" | "gems" | "consolidated"
 let hideClickbaitActive = false;
+let currentLang = localStorage.getItem('yt_cleaner_lang') || 'mixed';
 
 // Local Memory State (localStorage with try-catch fallback)
 let channelWeights = {};
 try {
-    channelWeights = JSON.parse(localStorage.getItem('yt_cleaner_channels')) || {};
+    const raw = localStorage.getItem('yt_cleaner_channels');
+    channelWeights = (raw && raw !== "null" && raw !== "undefined") ? JSON.parse(raw) : {};
+    if (!channelWeights || typeof channelWeights !== 'object' || Array.isArray(channelWeights)) {
+        channelWeights = {};
+    }
 } catch (e) {
     console.error("Failed to parse channels weights from localStorage:", e);
     channelWeights = {};
@@ -21,7 +26,11 @@ try {
 
 let keywordWeights = {};
 try {
-    keywordWeights = JSON.parse(localStorage.getItem('yt_cleaner_keywords')) || {};
+    const raw = localStorage.getItem('yt_cleaner_keywords');
+    keywordWeights = (raw && raw !== "null" && raw !== "undefined") ? JSON.parse(raw) : {};
+    if (!keywordWeights || typeof keywordWeights !== 'object' || Array.isArray(keywordWeights)) {
+        keywordWeights = {};
+    }
 } catch (e) {
     console.error("Failed to parse keywords weights from localStorage:", e);
     keywordWeights = {};
@@ -34,6 +43,22 @@ try {
 } catch (e) {
     console.error("Failed to parse seen videos from localStorage:", e);
     seenVideoIds = new Set();
+}
+
+let customSeeds = { general: [], entertainment: [], music: [], education: [] };
+try {
+    const parsed = JSON.parse(localStorage.getItem('yt_cleaner_custom_seeds'));
+    if (parsed && typeof parsed === 'object') {
+        customSeeds = {
+            general: Array.isArray(parsed.general) ? parsed.general : [],
+            entertainment: Array.isArray(parsed.entertainment) ? parsed.entertainment : [],
+            music: Array.isArray(parsed.music) ? parsed.music : [],
+            education: Array.isArray(parsed.education) ? parsed.education : []
+        };
+    }
+} catch (e) {
+    console.error("Failed to parse custom seeds from localStorage:", e);
+    customSeeds = { general: [], entertainment: [], music: [], education: [] };
 }
 
 // Adaptive suggestions template maps
@@ -107,7 +132,19 @@ const toggleAntiClickbait = document.getElementById("toggle-anti-clickbait");
 // Initialization
 document.addEventListener("DOMContentLoaded", () => {
     renderPreferencesList();
+    renderCuratedSeeds();
     updateSearchSuggestions();
+    
+    // Set initial visual state for language buttons
+    document.querySelectorAll(".lang-btn").forEach(btn => {
+        const btnLang = btn.getAttribute("data-lang");
+        if (btnLang === currentLang) {
+            btn.className = "lang-btn inline-flex items-center justify-center whitespace-nowrap rounded-md px-2.5 py-1 text-[10px] font-bold transition-all focus-visible:outline-none bg-background text-foreground shadow font-heading gap-1";
+        } else {
+            btn.className = "lang-btn inline-flex items-center justify-center whitespace-nowrap rounded-md px-2.5 py-1 text-[10px] font-semibold transition-all focus-visible:outline-none text-muted-foreground hover:text-foreground font-heading";
+        }
+    });
+
     fetchInitialFeed();
     setupEventListeners();
 });
@@ -275,6 +312,38 @@ function setupEventListeners() {
             processAndRenderVideos(currentRawVideos, false);
         }
     });
+
+    // Language select buttons click
+    document.querySelectorAll(".lang-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const lang = btn.getAttribute("data-lang");
+            if (lang) {
+                setLanguage(lang);
+            }
+        });
+    });
+
+    // Add Curated Seed Form (Upgrade B)
+    const addSeedForm = document.getElementById("add-seed-form");
+    if (addSeedForm) {
+        addSeedForm.addEventListener("submit", (e) => {
+            e.preventDefault();
+            const input = document.getElementById("new-seed-input");
+            const val = input.value.trim();
+            if (val) {
+                if (!customSeeds[currentCategory]) {
+                    customSeeds[currentCategory] = [];
+                }
+                if (!customSeeds[currentCategory].includes(val)) {
+                    customSeeds[currentCategory].push(val);
+                    localStorage.setItem('yt_cleaner_custom_seeds', JSON.stringify(customSeeds));
+                    renderCuratedSeeds();
+                    fetchInitialFeed();
+                }
+                input.value = "";
+            }
+        });
+    }
 }
 
 // Update search suggestions list dynamically
@@ -319,6 +388,7 @@ function setCategory(category) {
     currentSearchQuery = "";
     
     updateSearchSuggestions();
+    renderCuratedSeeds();
     fetchInitialFeed();
 }
 
@@ -342,6 +412,24 @@ function setTab(tabType) {
     });
     
     processAndRenderVideos(currentRawVideos, false);
+}
+
+// Set active language preference
+function setLanguage(lang) {
+    currentLang = lang;
+    localStorage.setItem('yt_cleaner_lang', lang);
+    
+    // Update visual styling
+    document.querySelectorAll(".lang-btn").forEach(btn => {
+        const btnLang = btn.getAttribute("data-lang");
+        if (btnLang === lang) {
+            btn.className = "lang-btn inline-flex items-center justify-center whitespace-nowrap rounded-md px-2.5 py-1 text-[10px] font-bold transition-all focus-visible:outline-none bg-background text-foreground shadow font-heading gap-1";
+        } else {
+            btn.className = "lang-btn inline-flex items-center justify-center whitespace-nowrap rounded-md px-2.5 py-1 text-[10px] font-semibold transition-all focus-visible:outline-none text-muted-foreground hover:text-foreground font-heading";
+        }
+    });
+    
+    fetchInitialFeed();
 }
 
 // Reset search state
@@ -435,9 +523,27 @@ function fetchInitialFeed(query = "") {
         feedDesc.textContent = `Clean, clickbait-free ${currentCategory} videos mixed according to your preferences.`;
     }
 
+    // Gather top 5 positive keywords to personalize the dynamic category queries
+    const topKeywords = Object.entries(keywordWeights)
+        .filter(([_, w]) => w > 0)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([kw]) => kw);
+    const kwsParam = topKeywords.length > 0 ? `&kws=${encodeURIComponent(topKeywords.join(','))}` : '';
+
+    // Gather active category custom seeds (Upgrade B)
+    const activeSeeds = customSeeds[currentCategory] || [];
+    const seedsParam = activeSeeds.length > 0 ? `&seeds=${encodeURIComponent(activeSeeds.join(','))}` : '';
+
+    // Gather highly liked channels to pull their uploads (Upgrade C)
+    const favChannels = Object.entries(channelWeights)
+        .filter(([_, w]) => w >= 15)
+        .map(([c]) => c);
+    const channelsParam = favChannels.length > 0 ? `&fav_channels=${encodeURIComponent(favChannels.join(','))}` : '';
+
     const url = query 
         ? `/api/videos?q=${encodeURIComponent(query)}` 
-        : `/api/videos?category=${currentCategory}`;
+        : `/api/videos?category=${currentCategory}&lang=${currentLang}${kwsParam}${seedsParam}${channelsParam}`;
     
     fetch(url)
         .then(res => res.json())
@@ -470,9 +576,27 @@ function fetchMoreVideos() {
     isLoading = true;
     infiniteLoadingState.classList.remove("hidden");
     
+    // Gather top 5 positive keywords to personalize the scroll category queries
+    const topKeywords = Object.entries(keywordWeights)
+        .filter(([_, w]) => w > 0)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([kw]) => kw);
+    const kwsParam = topKeywords.length > 0 ? `&kws=${encodeURIComponent(topKeywords.join(','))}` : '';
+
+    // Gather active category custom seeds (Upgrade B)
+    const activeSeeds = customSeeds[currentCategory] || [];
+    const seedsParam = activeSeeds.length > 0 ? `&seeds=${encodeURIComponent(activeSeeds.join(','))}` : '';
+
+    // Gather highly liked channels to pull their uploads (Upgrade C)
+    const favChannels = Object.entries(channelWeights)
+        .filter(([_, w]) => w >= 15)
+        .map(([c]) => c);
+    const channelsParam = favChannels.length > 0 ? `&fav_channels=${encodeURIComponent(favChannels.join(','))}` : '';
+
     const url = currentSearchQuery 
         ? `/api/videos?q=${encodeURIComponent(currentSearchQuery)}` 
-        : `/api/videos?category=${currentCategory}`;
+        : `/api/videos?category=${currentCategory}&lang=${currentLang}${kwsParam}${seedsParam}${channelsParam}`;
     
     fetch(url)
         .then(res => res.json())
@@ -502,6 +626,13 @@ function fetchMoreVideos() {
 function processAndRenderVideos(rawVideosList, isAppend = false) {
     try {
         let eligible = rawVideosList.filter(v => v && v.id && !seenVideoIds.has(v.id));
+        
+        // Filter by detected language if language is selected (not mixed) (Upgrade A)
+        if (currentLang === "es") {
+            eligible = eligible.filter(v => detectLanguage(v.title) !== "en");
+        } else if (currentLang === "en") {
+            eligible = eligible.filter(v => detectLanguage(v.title) !== "es");
+        }
         
         eligible = eligible.filter(v => (channelWeights[v.channel] || 0) > -30);
         
@@ -857,4 +988,61 @@ function renderPreferencesList() {
             `;
         }).join("");
     }
+}
+
+// Render and manage custom category seeds (Upgrade B)
+function renderCuratedSeeds() {
+    const listContainer = document.getElementById("curated-seeds-list");
+    if (!listContainer) return;
+    
+    const activeSeeds = customSeeds[currentCategory] || [];
+    
+    if (activeSeeds.length === 0) {
+        listContainer.innerHTML = `<p class="text-[10px] text-muted-foreground italic">No custom seeds.</p>`;
+        return;
+    }
+    
+    listContainer.innerHTML = activeSeeds.map((seed, idx) => `
+        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-bold border border-zinc-700 bg-zinc-900/60 text-foreground/90 font-mono select-none">
+            ${seed}
+            <button type="button" onclick="deleteSeed('${currentCategory}', ${idx})" class="hover:text-rose-400 focus:outline-none ml-0.5">
+                <i data-lucide="x" class="h-2.5 w-2.5"></i>
+            </button>
+        </span>
+    `).join("");
+    
+    lucide.createIcons();
+}
+
+// Delete specific seed (Upgrade B)
+window.deleteSeed = function(category, index) {
+    const activeSeeds = customSeeds[category] || [];
+    activeSeeds.splice(index, 1);
+    localStorage.setItem('yt_cleaner_custom_seeds', JSON.stringify(customSeeds));
+    renderCuratedSeeds();
+    fetchInitialFeed();
+};
+
+// Client-Side Language Detector (Upgrade A)
+function detectLanguage(title) {
+    if (!title || typeof title !== "string") return "unknown";
+    const words = title.toLowerCase().split(/\s+/);
+    
+    const esStop = new Set(['el', 'la', 'los', 'las', 'un', 'una', 'y', 'en', 'de', 'para', 'con', 'que', 'del', 'al', 'como', 'este', 'esta']);
+    const enStop = new Set(['the', 'a', 'an', 'and', 'of', 'for', 'with', 'to', 'in', 'on', 'at', 'by', 'this', 'that', 'is', 'are', 'was', 'were']);
+    
+    let esCount = 0;
+    let enCount = 0;
+    
+    words.forEach(w => {
+        const clean = w.replace(/[^\w]/g, '');
+        if (esStop.has(clean)) esCount++;
+        if (enStop.has(clean)) enCount++;
+    });
+    
+    if (esCount > enCount) return "es";
+    if (enCount > esCount) return "en";
+    if (/[áéíóúñÁÉÍÓÚÑ]/i.test(title)) return "es";
+    
+    return "unknown";
 }

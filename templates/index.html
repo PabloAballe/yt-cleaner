@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>YT Cleaner | Intelligent Curated Feed</title>
+    <link rel="icon" type="image/png" href="/static/favicon.png">
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     
@@ -261,7 +262,20 @@
                     </div>
 
                     <!-- Quick Actions & Toggles -->
-                    <div class="flex items-center gap-2 flex-wrap">
+                    <div class="flex items-center gap-3 flex-wrap">
+                        <!-- Language Selector -->
+                        <div class="inline-flex h-8 items-center justify-center rounded-lg bg-zinc-900 border border-border p-1 text-muted-foreground select-none">
+                            <button id="lang-mixed" class="lang-btn inline-flex items-center justify-center whitespace-nowrap rounded-md px-2.5 py-1 text-[10px] font-bold transition-all focus-visible:outline-none bg-background text-foreground shadow font-heading gap-1" data-lang="mixed">
+                                <i data-lucide="languages" class="h-3 w-3"></i>Mixed
+                            </button>
+                            <button id="lang-en" class="lang-btn inline-flex items-center justify-center whitespace-nowrap rounded-md px-2.5 py-1 text-[10px] font-semibold transition-all focus-visible:outline-none text-muted-foreground hover:text-foreground font-heading" data-lang="en">
+                                English
+                            </button>
+                            <button id="lang-es" class="lang-btn inline-flex items-center justify-center whitespace-nowrap rounded-md px-2.5 py-1 text-[10px] font-semibold transition-all focus-visible:outline-none text-muted-foreground hover:text-foreground font-heading" data-lang="es">
+                                Español
+                            </button>
+                        </div>
+
                         <!-- Anti-Clickbait Toggle Pill -->
                         <button id="toggle-anti-clickbait" class="h-8 px-3 border border-border hover:border-zinc-700 bg-card text-muted-foreground hover:text-foreground text-[10px] font-bold rounded-full flex items-center gap-1.5 transition-all font-heading select-none">
                             <i data-lucide="shield-alert" class="h-3.5 w-3.5"></i>
@@ -347,6 +361,34 @@
                             </summary>
                             <div id="learned-keywords" class="flex flex-wrap gap-1.5 max-h-56 overflow-y-auto mt-2.5 pr-1">
                                 <p class="text-[10px] text-muted-foreground italic">No records yet.</p>
+                            </div>
+                        </details>
+
+                        <!-- Collapsible Curated Seeds (Upgrade B) -->
+                        <details class="group border border-border/40 bg-background/30 rounded-md p-2.5 cursor-pointer" open>
+                            <summary class="text-[10px] font-bold text-muted-foreground hover:text-foreground tracking-wider uppercase font-heading select-none flex items-center justify-between">
+                                My Curated Seeds
+                                <i data-lucide="chevron-down" class="h-3 w-3 transition-transform group-open:rotate-180 opacity-70"></i>
+                            </summary>
+                            <div class="mt-2.5 space-y-2">
+                                <div id="curated-seeds-list" class="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto pr-1">
+                                    <!-- Custom seeds injected here -->
+                                </div>
+                                <form id="add-seed-form" class="flex gap-1.5 mt-2">
+                                    <input 
+                                        type="text" 
+                                        id="new-seed-input" 
+                                        placeholder="Add seed term..." 
+                                        class="flex-1 h-7 px-2 bg-zinc-900 border border-border rounded text-[10px] text-foreground focus:outline-none focus:border-zinc-600"
+                                        required
+                                    >
+                                    <button 
+                                        type="submit" 
+                                        class="h-7 px-2.5 bg-primary text-primary-foreground hover:bg-primary/90 text-[10px] font-bold rounded flex items-center justify-center"
+                                    >
+                                        Add
+                                    </button>
+                                </form>
                             </div>
                         </details>
 

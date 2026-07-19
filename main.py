@@ -9,56 +9,83 @@ import youtube_client
 
 app = FastAPI(title="YT Cleaner Stateless API")
 
-# Mount static and templates
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-# Default quality search terms for category pools
-DEFAULT_QUERIES = [
-    "nuevas tecnologias programacion",
-    "quantum computing research documentary",
-    "web development trends 2026",
-    "space exploration discoveries",
-    "divulgacion cientifica documentales",
-    "artificial intelligence innovation",
-    "independent history documentary",
-    "curiosidades cientificas astronomia",
-    "rust coding project tutorial",
-    "cybersecurity tools open source",
-    "veritasium space physics",
-    "physics experiments quantum mechanics",
-    "future biotechnology genetics"
-]
+# CURATED SEARCH QUERY POOLS BY LANGUAGE
+QUERIES_ES = {
+    "general": [
+        "nuevas tecnologias programacion",
+        "divulgacion cientifica documentales",
+        "curiosidades cientificas astronomia",
+        "historia mundial documental independiente",
+        "inteligencia artificial innovaciones",
+        "veritasium español ciencia"
+    ],
+    "entertainment": [
+        "documentales cinefilos analisis de peliculas",
+        "video ensayos cinematograficos espanol",
+        "analisis de libros clasicos literatura",
+        "stand up comedy inteligente español"
+    ],
+    "music": [
+        "musica para programar lofi chill",
+        "sesion acustica en vivo indie",
+        "musica clasica para estudiar profundamente",
+        "documental historia de la musica"
+    ],
+    "education": [
+        "curso completo de programacion python",
+        "derivaciones fisica cuantica clase",
+        "tutorial de programacion rust espanol",
+        "explicaciones cientificas animadas"
+    ]
+}
 
-ENTERTAINMENT_QUERIES = [
-    "documentales cinefilos analisis de peliculas",
-    "video ensayos cinematograficos",
-    "smart storytelling mystery history",
-    "stand up comedy inteligente",
-    "independent short film award winners",
-    "curiosidades sobre directores de cine",
-    "literatura analizando libros clasicos"
-]
+QUERIES_EN = {
+    "general": [
+        "quantum computing research documentary",
+        "web development trends 2026",
+        "space exploration discoveries nasa",
+        "veritasium physics space",
+        "future biotechnology genetics documentary"
+    ],
+    "entertainment": [
+        "smart storytelling mystery history documentary",
+        "independent short film award winners",
+        "video essay movie analysis channel",
+        "cinematography analysis video essays"
+    ],
+    "music": [
+        "lofi chillhop beats to code",
+        "acoustic live session performance indie",
+        "ambient synthesizer modular performance",
+        "jazz trio live session concert",
+        "chill synthwave study track"
+    ],
+    "education": [
+        "python coding tutorial full course",
+        "quantum mechanics derivation physics lecture",
+        "mathematics visualization 3blue1brown",
+        "building full stack programming project tutorial"
+    ]
+}
 
-MUSIC_QUERIES = [
-    "lofi chillhop beats to code",
-    "acoustic live session performance indie",
-    "classical music deep study playlist",
-    "music history documentary analysis",
-    "ambient synthesizer modular performance",
-    "jazz trio live session concert",
-    "chill synthwave study track"
-]
-
-EDUCATION_QUERIES = [
-    "python coding tutorial full course",
-    "quantum mechanics derivation physics",
-    "history research documents lessons",
-    "mathematics visualization 3blue1brown",
-    "genetics biology breakthroughs lecture",
-    "building full stack programming project",
-    "science communication explanations"
-]
+# Suffixes to pair with user liked keywords for personalized generation
+CATEGORY_SUFFIXES = {
+    "general": [
+        "nuevas tecnologias", "future technology", "quantum physics", "science discoveries", "divulgacion cientifica", "space exploration"
+    ],
+    "entertainment": [
+        "documental cinefilo", "video ensayo", "storytelling", "cine de culto", "independent film"
+    ],
+    "music": [
+        "lofi chill beats", "acoustic live session", "ambient synthesizer", "modular performance", "jazz live", "synthwave study"
+    ],
+    "education": [
+        "coding tutorial", "full course lesson", "mathematics visualization", "science explanation", "clase magistral"
+    ]
+}
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
@@ -69,28 +96,59 @@ async def read_root(request: Request):
         return templates.TemplateResponse("index.html", {"request": request})
 
 @app.get("/api/videos")
-async def get_videos(q: Optional[str] = Query(None), category: str = "general"):
+async def get_videos(
+    q: Optional[str] = Query(None), 
+    category: str = "general", 
+    lang: str = "mixed", 
+    kws: Optional[str] = Query(None)
+):
     """
     Fetches raw search result videos from YouTube (scraped).
-    All ranking, quality checking, and preferences are computed on the client side.
+    Category feeds are dynamically curated using language-specific query pools
+    intermixed with personalized search queries generated from the user's top liked keywords.
     """
     raw_videos = []
     
     try:
         if q and q.strip():
-            # Specific search query
+            # If explicit search query is typed, search exactly that query
             raw_videos = youtube_client.search_youtube(q.strip(), max_results=35)
         else:
-            # Category random query combination
-            if category == "music":
-                chosen_queries = random.sample(MUSIC_QUERIES, min(3, len(MUSIC_QUERIES)))
-            elif category == "entertainment":
-                chosen_queries = random.sample(ENTERTAINMENT_QUERIES, min(3, len(ENTERTAINMENT_QUERIES)))
-            elif category == "education":
-                chosen_queries = random.sample(EDUCATION_QUERIES, min(3, len(EDUCATION_QUERIES)))
-            else:
-                chosen_queries = random.sample(DEFAULT_QUERIES, min(3, len(DEFAULT_QUERIES)))
-                
+            # Parse user liked keywords from query param
+            user_kws = []
+            if kws:
+                user_kws = [k.strip() for k in kws.split(",") if k.strip()]
+            
+            # Generate personalized dynamic search queries
+            dynamic_queries = []
+            if user_kws:
+                suffixes = CATEGORY_SUFFIXES.get(category, CATEGORY_SUFFIXES["general"])
+                for kw in user_kws:
+                    suffix = random.choice(suffixes)
+                    dynamic_queries.append(f"{kw} {suffix}")
+            
+            # Select category pools as fallbacks or mix-ins
+            if lang == "es":
+                static_pool = QUERIES_ES.get(category, QUERIES_ES["general"])
+            elif lang == "en":
+                static_pool = QUERIES_EN.get(category, QUERIES_EN["general"])
+            else:  # mixed/all
+                static_pool = QUERIES_ES.get(category, QUERIES_ES["general"]) + QUERIES_EN.get(category, QUERIES_EN["general"])
+            
+            # Mix dynamic (personalized) and static queries
+            random.shuffle(dynamic_queries)
+            random.shuffle(static_pool)
+            
+            # Take up to 2 dynamic queries, and fill the rest to make a total of 3 queries
+            chosen_queries = []
+            if dynamic_queries:
+                chosen_queries.extend(dynamic_queries[:2])
+            
+            remaining_needed = 3 - len(chosen_queries)
+            if remaining_needed > 0:
+                chosen_queries.extend(static_pool[:remaining_needed])
+            
+            # Fetch videos from YouTube search
             for query in chosen_queries:
                 res = youtube_client.search_youtube(query, max_results=15)
                 raw_videos.extend(res)

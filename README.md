@@ -1,5 +1,7 @@
 # YT Cleaner 🚀 (Stateless YouTube Curation Feed)
 
+![YT Cleaner Dashboard](screenshot.png)
+
 YT Cleaner is an intelligent, database-free YouTube dashboard that filters out clickbait/Shorts and curates a clean feed dynamically. All learning preferences (favorite channels, keyword weights, and skipped video history) are saved inside your browser's local storage, keeping the application fast, portable, and completely private.
 
 ---
