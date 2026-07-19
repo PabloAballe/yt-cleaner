@@ -1333,7 +1333,7 @@ function showSponsorBadge(videoId, seconds) {
 window.playVideo = function(videoId) {
     const video = currentVideos.find(v => v.id === videoId);
     if (video) {
-        openPlayerModal(video.id, video.title, video.channel);
+        openPlayerModal(video.id, video.title, video.channel, video.score, video.reasons || [], video.url);
     }
 };
 
@@ -1353,12 +1353,16 @@ function updateGemsSliderLabel(val) {
     }
 }
 
-// Open YouTube Player Modal with Sponsor Auto-Skip (Option 2)
-function openPlayerModal(videoId, title, channel) {
+// Open YouTube Player Modal with Curation Dashboard & Sponsor Auto-Skip (Option 2)
+function openPlayerModal(videoId, title, channel, score, reasons, videoUrl) {
     const modal = document.getElementById("player-modal");
     const modalTitle = document.getElementById("modal-video-title");
     const modalChannel = document.getElementById("modal-video-channel");
-    const sponsorStatus = document.getElementById("modal-sponsor-status");
+    const scoreBadge = document.getElementById("modal-video-score");
+    const reasonsList = document.getElementById("modal-reasons-list");
+    const ytLink = document.getElementById("modal-youtube-link");
+    const sponsorSection = document.getElementById("modal-sponsor-section");
+    const segmentsList = document.getElementById("modal-sponsor-segments-list");
     
     if (!modal) return;
     
@@ -1366,10 +1370,58 @@ function openPlayerModal(videoId, title, channel) {
     modalTitle.textContent = title;
     modalChannel.textContent = channel;
     
-    activeVideoSponsorSegments = [];
-    sponsorStatus.classList.add("hidden");
+    // Set Curation Score Badge with dynamic coloring
+    if (scoreBadge) {
+        scoreBadge.textContent = `Score: ${score}`;
+        scoreBadge.className = "inline-flex items-center justify-center px-2 py-0.5 rounded text-[10px] font-bold font-mono " +
+            (score >= 70 ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" :
+             score < 40 ? "bg-rose-500/10 text-rose-400 border border-rose-500/20" :
+             "bg-zinc-500/10 text-zinc-400 border border-zinc-500/20");
+    }
     
-    // Fetch sponsor segments for player skipping
+    // Populate reasons list
+    if (reasonsList) {
+        reasonsList.innerHTML = reasons.map(r => `
+            <li class="flex items-start gap-1.5">
+                <span class="w-1.5 h-1.5 rounded-full bg-zinc-500 mt-1 flex-shrink-0"></span>
+                <span>${r}</span>
+            </li>
+        `).join("");
+    }
+    
+    // Set external YouTube link
+    if (ytLink) {
+        ytLink.href = videoUrl || `https://www.youtube.com/watch?v=${videoId}`;
+    }
+    
+    // Bind Curation action buttons inside the player modal
+    const keepBtn = document.getElementById("modal-btn-keep");
+    const junkBtn = document.getElementById("modal-btn-junk");
+    const banBtn = document.getElementById("modal-btn-ban");
+    
+    if (keepBtn) {
+        keepBtn.onclick = () => {
+            submitFeedback(videoId, 'like');
+            closePlayerModal();
+        };
+    }
+    if (junkBtn) {
+        junkBtn.onclick = () => {
+            submitFeedback(videoId, 'dislike');
+            closePlayerModal();
+        };
+    }
+    if (banBtn) {
+        banBtn.onclick = () => {
+            banChannel(channel);
+            closePlayerModal();
+        };
+    }
+    
+    activeVideoSponsorSegments = [];
+    if (sponsorSection) sponsorSection.classList.add("hidden");
+    
+    // Fetch sponsor segments for player skipping & visualization
     fetch(`https://sponsor.ajay.app/api/skipSegments?videoID=${videoId}&categories=["sponsor"]`)
         .then(res => {
             if (res.status === 200) return res.json();
@@ -1378,7 +1430,19 @@ function openPlayerModal(videoId, title, channel) {
         .then(data => {
             if (Array.isArray(data) && data.length > 0) {
                 activeVideoSponsorSegments = data.map(seg => seg.segment);
-                sponsorStatus.classList.remove("hidden");
+                if (sponsorSection) sponsorSection.classList.remove("hidden");
+                if (segmentsList) {
+                    segmentsList.innerHTML = data.map(seg => {
+                        const start = formatSegmentTime(seg.segment[0]);
+                        const end = formatSegmentTime(seg.segment[1]);
+                        return `
+                            <li class="flex items-center justify-between text-muted-foreground/80 hover:text-amber-300 transition-colors py-0.5 select-none">
+                                <span>Sponsor Block</span>
+                                <span class="bg-zinc-800 px-1 rounded text-zinc-400">${start} - ${end}</span>
+                            </li>
+                        `;
+                    }).join("");
+                }
             }
         })
         .catch(err => console.warn("Failed to load skip segments for player:", err));
@@ -1412,6 +1476,16 @@ function openPlayerModal(videoId, title, channel) {
     // Start interval listener for auto-skipping sponsor blocks
     if (playerCheckInterval) clearInterval(playerCheckInterval);
     playerCheckInterval = setInterval(checkAndSkipSponsors, 250);
+    
+    // Refresh icons inside modal
+    lucide.createIcons();
+}
+
+// Convert seconds count to M:SS layout
+function formatSegmentTime(sec) {
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
 // Fallback plain iframe embed if YT API is slow to load
