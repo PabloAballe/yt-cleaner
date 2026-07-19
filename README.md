@@ -1,5 +1,7 @@
 # YT Cleaner 🚀
 
+![YT Cleaner Dashboard](screenshot.png)
+
 YT Cleaner is a stateless, browser-native YouTube curation client that removes algorithmic clickbait, filters video durations to match your schedule, and automatically fast-forwards through embedded sponsor ads. It runs without databases, cloud dependencies, or developer API keys, saving your learned favorite tags and blacklist blocks 100% locally inside your browser's `localStorage`.
 
 ---
