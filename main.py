@@ -63,7 +63,10 @@ EDUCATION_QUERIES = [
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     """Renders the single-page application UI."""
-    return templates.TemplateResponse("index.html", {"request": request})
+    try:
+        return templates.TemplateResponse(request, "index.html")
+    except TypeError:
+        return templates.TemplateResponse("index.html", {"request": request})
 
 @app.get("/api/videos")
 async def get_videos(q: Optional[str] = Query(None), category: str = "general"):
