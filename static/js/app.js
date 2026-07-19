@@ -930,7 +930,7 @@ function renderGrid(videosList, isAppend = false) {
             <div>
                 <!-- Thumbnail -->
                 <div class="relative aspect-video w-full overflow-hidden bg-muted">
-                    <a href="${video.url}" target="_blank" onclick="event.preventDefault(); openPlayerModal('${video.id}', '${video.title.replace(/'/g, "\\'")}', '${video.channel.replace(/'/g, "\\'")}')" class="block w-full h-full">
+                    <a href="${video.url}" target="_blank" onclick="event.preventDefault(); playVideo('${video.id}')" class="block w-full h-full">
                         <img 
                             src="${video.thumbnail}" 
                             alt="${video.title}" 
@@ -952,7 +952,7 @@ function renderGrid(videosList, isAppend = false) {
                 <!-- Text metadata -->
                 <div class="p-4 space-y-2">
                     <div class="space-y-1">
-                        <a href="${video.url}" target="_blank" onclick="event.preventDefault(); openPlayerModal('${video.id}', '${video.title.replace(/'/g, "\\'")}', '${video.channel.replace(/'/g, "\\'")}')" class="block">
+                        <a href="${video.url}" target="_blank" onclick="event.preventDefault(); playVideo('${video.id}')" class="block">
                             <h3 class="text-sm font-semibold tracking-tight line-clamp-2 hover:text-white transition-colors font-sans leading-snug" title="${video.title}">
                                 ${video.title}
                             </h3>
@@ -1328,6 +1328,14 @@ function showSponsorBadge(videoId, seconds) {
     // Refresh lucide icons
     lucide.createIcons();
 }
+
+// Global video play click router (handles safe object lookup to avoid quote escaping errors)
+window.playVideo = function(videoId) {
+    const video = currentVideos.find(v => v.id === videoId);
+    if (video) {
+        openPlayerModal(video.id, video.title, video.channel);
+    }
+};
 
 // Update gems slider text label (Option 5)
 function updateGemsSliderLabel(val) {
