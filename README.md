@@ -1,9 +1,9 @@
 # YT Cleaner 🚀 (Stateless YouTube Curation Feed)
 
-> **BLUF (Bottom Line Up Front):** YT Cleaner is a database-free YouTube dashboard that filters out clickbait/Shorts and curates your feed dynamically. All learning preferences (weights, skip history, views settings) are saved in your browser's `localStorage`.
->
-> 🚀 **Deploy Free on Render in 2 mins:** Connect this repo to [Render](https://render.com) as a Docker web service. No database configuration needed.
-> 💻 **Run Locally in 1 command:** `python -m uvicorn main:app --reload` (Open [http://localhost:8000](http://localhost:8000))
+YT Cleaner is an intelligent, database-free YouTube dashboard that filters out clickbait/Shorts and curates your feed dynamically. All learning preferences (weights, skip history, views settings) are saved in your browser's `localStorage`, eliminating the need to deploy or configure a database server.
+
+- 🚀 **Deploy Free on Render in 2 mins:** Connect this repository to [Render](https://render.com) as a Docker web service.
+- 💻 **Run Locally in 1 command:** `python -m uvicorn main:app --reload` (Open [http://localhost:8000](http://localhost:8000))
 
 ---
 
