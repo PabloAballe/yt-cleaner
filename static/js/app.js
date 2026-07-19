@@ -10,10 +10,31 @@ let currentCategory = "general"; // "general" | "entertainment" | "music" | "edu
 let activeTab = "all"; // "all" | "gems" | "consolidated"
 let hideClickbaitActive = false;
 
-// Local Memory State (localStorage)
-let channelWeights = JSON.parse(localStorage.getItem('yt_cleaner_channels') || '{}');
-let keywordWeights = JSON.parse(localStorage.getItem('yt_cleaner_keywords') || '{}');
-let seenVideoIds = new Set(JSON.parse(localStorage.getItem('yt_cleaner_seen') || '[]'));
+// Local Memory State (localStorage with try-catch fallback)
+let channelWeights = {};
+try {
+    channelWeights = JSON.parse(localStorage.getItem('yt_cleaner_channels')) || {};
+} catch (e) {
+    console.error("Failed to parse channels weights from localStorage:", e);
+    channelWeights = {};
+}
+
+let keywordWeights = {};
+try {
+    keywordWeights = JSON.parse(localStorage.getItem('yt_cleaner_keywords')) || {};
+} catch (e) {
+    console.error("Failed to parse keywords weights from localStorage:", e);
+    keywordWeights = {};
+}
+
+let seenVideoIds = new Set();
+try {
+    const seenArray = JSON.parse(localStorage.getItem('yt_cleaner_seen')) || [];
+    seenVideoIds = new Set(seenArray);
+} catch (e) {
+    console.error("Failed to parse seen videos from localStorage:", e);
+    seenVideoIds = new Set();
+}
 
 // Adaptive suggestions template maps
 const categorySuggestions = {
@@ -93,9 +114,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
 // Save client state to localStorage
 function savePreferencesToStorage() {
-    localStorage.setItem('yt_cleaner_channels', JSON.stringify(channelWeights));
-    localStorage.setItem('yt_cleaner_keywords', JSON.stringify(keywordWeights));
-    localStorage.setItem('yt_cleaner_seen', JSON.stringify(Array.from(seenVideoIds)));
+    try {
+        localStorage.setItem('yt_cleaner_channels', JSON.stringify(channelWeights));
+        localStorage.setItem('yt_cleaner_keywords', JSON.stringify(keywordWeights));
+        localStorage.setItem('yt_cleaner_seen', JSON.stringify(Array.from(seenVideoIds)));
+    } catch (e) {
+        console.error("Failed to save preferences to localStorage:", e);
+    }
 }
 
 // Event listeners setup
@@ -222,7 +247,6 @@ function setupEventListeners() {
                 toggleAntiClickbait.classList.add("text-muted-foreground", "bg-card");
             }
             
-            // Re-process current raw list with updated tab filters
             processAndRenderVideos(currentRawVideos, false);
         });
     }
@@ -278,7 +302,7 @@ function updateSearchSuggestions() {
     });
 }
 
-// Change high-level active category
+// Change category
 function setCategory(category) {
     currentCategory = category;
     
@@ -298,7 +322,7 @@ function setCategory(category) {
     fetchInitialFeed();
 }
 
-// Set active tab style and state
+// Set active tab style
 function setTab(tabType) {
     activeTab = tabType;
     
@@ -317,11 +341,10 @@ function setTab(tabType) {
         }
     });
     
-    // Re-process current raw list with updated tab filters
     processAndRenderVideos(currentRawVideos, false);
 }
 
-// Reset search state and return to curated home feed
+// Reset search state
 function resetSearchAndGoHome() {
     searchInput.value = "";
     currentSearchQuery = "";
@@ -341,8 +364,9 @@ function closeSidebar() {
     sidebarBackdrop.classList.add("hidden");
 }
 
-// Extract keywords from title text (ignoring common stop words)
+// Extract keywords safely
 function extractKeywords(title) {
+    if (!title || typeof title !== "string") return [];
     const words = title.toLowerCase().match(/\b[a-zA-Záéíóúñ]{4,15}\b/g) || [];
     const stopWords = new Set([
         'with', 'your', 'from', 'this', 'that', 'about', 'how', 'what', 'why', 'who', 'where', 'when',
@@ -351,8 +375,10 @@ function extractKeywords(title) {
     return words.filter(w => !stopWords.has(w));
 }
 
-// Check clickbait features with JS Regex
+// Universal clickbait check (no property escapes)
 function checkClickbait(title) {
+    if (!title || typeof title !== "string") return { detected: false };
+    
     const patterns = [
         /\b(increible|alucinante|no\s+creeras|sorprendente|revelado|por\s+fin|la\s+verdad\s+sobre|esto\s+cambia\s+todo|el\s+fin\s+de|nunca\s+antes|secreto|brutal|impactante|urgente|atencion)\b/i,
         /\b(shocking|must\s+watch|won't\s+believe|revealed|finally|truth\s+about|changes\s+everything|end\s+of|never\s+before|secret|mind-blowing|unbelievable)\b/i
@@ -365,15 +391,14 @@ function checkClickbait(title) {
         }
     }
     
-    // Check CAPS proportion
     const words = title.split(/\s+/).filter(w => w.length > 0);
     const capsWords = words.filter(w => w === w.toUpperCase() && w.replace(/[^\w]/g, '').length > 2);
     if (words.length >= 4 && (capsWords.length / words.length) >= 0.3) {
         return { detected: true, reason: `Excessive ALL CAPS words (${capsWords.length} words)` };
     }
     
-    // Check Emojis
-    const emojiMatch = title.match(/[\uD800-\uDBFF][\uDC00-\uDFFF]|\p{Emoji_Presentation}|\p{Emoji}\uFE0F/gu) || [];
+    // Universally compatible emoji character ranges
+    const emojiMatch = title.match(/[\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF]/g) || [];
     if (emojiMatch.length > 3) {
         return { detected: true, reason: `Excessive emojis (${emojiMatch.length} emojis)` };
     }
@@ -438,7 +463,7 @@ function fetchInitialFeed(query = "") {
         });
 }
 
-// Fetch more videos for Infinite Scroll
+// Fetch more videos (Infinite Scroll)
 function fetchMoreVideos() {
     if (isLoading) return;
     
@@ -458,7 +483,6 @@ function fetchMoreVideos() {
             
             if (newRawVideos.length === 0) return;
             
-            // Merge into currentRawVideos
             newRawVideos.forEach(v => {
                 if (!currentRawVideos.some(x => x.id === v.id)) {
                     currentRawVideos.push(v);
@@ -476,121 +500,109 @@ function fetchMoreVideos() {
 
 // Score, Filter, and Interleave Videos on Client-Side
 function processAndRenderVideos(rawVideosList, isAppend = false) {
-    // 1. Filter seen videos
-    let eligible = rawVideosList.filter(v => !seenVideoIds.has(v.id));
-    
-    // 2. Filter blacklisted channels (weight <= -30)
-    eligible = eligible.filter(v => (channelWeights[v.channel] || 0) > -30);
-    
-    // 3. Automated quality duration filters (shorts Blocked, stream Blocked)
-    eligible = eligible.filter(v => {
-        if (v.duration > 0) {
-            if (v.duration < 120) return false; // shorts
-            if (v.duration > 5400) return false; // streams
-        }
-        return true;
-    });
-    
-    // 4. Low view spam filter: views >= 1000 views, unless channel is liked (weight > 0)
-    eligible = eligible.filter(v => {
-        const chanWeight = channelWeights[v.channel] || 0;
-        if (v.view_count > 0 && v.view_count < 1000 && chanWeight <= 0) {
-            return false;
-        }
-        return true;
-    });
-    
-    // 5. Score calculations
-    const scoredList = eligible.map(video => {
-        let score = 50;
-        const reasons = [];
+    try {
+        let eligible = rawVideosList.filter(v => v && v.id && !seenVideoIds.has(v.id));
         
-        // Channel weight evaluation
-        const chanW = channelWeights[video.channel] || 0;
-        if (chanW !== 0) {
-            score += chanW;
-            reasons.push(`Channel '${video.channel}' (${chanW > 0 ? '+' : ''}${chanW} pts)`);
-        }
+        eligible = eligible.filter(v => (channelWeights[v.channel] || 0) > -30);
         
-        // Keyword weight evaluation
-        const keywords = extractKeywords(video.title);
-        let kwScore = 0;
-        const kwMatches = [];
-        keywords.forEach(kw => {
-            const kwW = keywordWeights[kw] || 0;
-            if (kwW !== 0) {
-                kwScore += kwW;
-                kwMatches.push(`'${kw}' (${kwW > 0 ? '+' : ''}${kwW})`);
+        eligible = eligible.filter(v => {
+            if (v.duration > 0) {
+                if (v.duration < 120) return false;
+                if (v.duration > 5400) return false;
             }
+            return true;
         });
-        if (kwScore !== 0) {
-            score += kwScore;
-            reasons.push(`Keywords: ${kwMatches.join(', ')}`);
+        
+        eligible = eligible.filter(v => {
+            const chanWeight = channelWeights[v.channel] || 0;
+            if (v.view_count > 0 && v.view_count < 1000 && chanWeight <= 0) {
+                return false;
+            }
+            return true;
+        });
+        
+        const scoredList = eligible.map(video => {
+            let score = 50;
+            const reasons = [];
+            
+            const chanW = channelWeights[video.channel] || 0;
+            if (chanW !== 0) {
+                score += chanW;
+                reasons.push(`Channel '${video.channel}' (${chanW > 0 ? '+' : ''}${chanW} pts)`);
+            }
+            
+            const keywords = extractKeywords(video.title);
+            let kwScore = 0;
+            const kwMatches = [];
+            keywords.forEach(kw => {
+                const kwW = keywordWeights[kw] || 0;
+                if (kwW !== 0) {
+                    kwScore += kwW;
+                    kwMatches.push(`'${kw}' (${kwW > 0 ? '+' : ''}${kwW})`);
+                }
+            });
+            if (kwScore !== 0) {
+                score += kwScore;
+                reasons.push(`Keywords: ${kwMatches.join(', ')}`);
+            }
+            
+            const clickbait = checkClickbait(video.title);
+            if (clickbait.detected) {
+                score -= 25;
+                reasons.push(`Clickbait detected: ${clickbait.reason} (-25 pts)`);
+            }
+            
+            const scoredVideo = { ...video };
+            scoredVideo.score = Math.max(0, Math.min(100, score));
+            scoredVideo.reasons = reasons.length > 0 ? reasons : ["Passed quality checks (Neutral)"];
+            scoredVideo.is_clickbait = clickbait.detected;
+            scoredVideo.type = video.view_count >= 50000 ? "consolidated" : "gem";
+            
+            return scoredVideo;
+        });
+        
+        currentVideos = scoredList;
+        
+        let filteredList = currentVideos;
+        if (activeTab === "gems") {
+            filteredList = filteredList.filter(v => v.type === "gem");
+        } else if (activeTab === "consolidated") {
+            filteredList = filteredList.filter(v => v.type === "consolidated");
         }
         
-        // Clickbait penalty check
-        const clickbait = checkClickbait(video.title);
-        if (clickbait.detected) {
-            score -= 25;
-            reasons.push(`Clickbait detected: ${clickbait.reason} (-25 pts)`);
+        if (hideClickbaitActive) {
+            filteredList = filteredList.filter(v => !v.is_clickbait);
         }
         
-        // Clone and annotate video
-        const scoredVideo = { ...video };
-        scoredVideo.score = Math.max(0, Math.min(100, score));
-        scoredVideo.reasons = reasons.length > 0 ? reasons : ["Passed quality checks (Neutral)"];
-        scoredVideo.is_clickbait = clickbait.detected;
-        scoredVideo.type = video.view_count >= 50000 ? "consolidated" : "gem";
+        const consolidatedList = filteredList.filter(v => v.type === "consolidated");
+        const gemsList = filteredList.filter(v => v.type === "gem");
         
-        return scoredVideo;
-    });
-    
-    // Store in currentVideos state
-    currentVideos = scoredList;
-    
-    // 6. Apply Active Tab filter (Gems vs Consolidated)
-    let filteredList = currentVideos;
-    if (activeTab === "gems") {
-        filteredList = filteredList.filter(v => v.type === "gem");
-    } else if (activeTab === "consolidated") {
-        filteredList = filteredList.filter(v => v.type === "consolidated");
-    }
-    
-    // Apply Anti-clickbait active filter
-    if (hideClickbaitActive) {
-        filteredList = filteredList.filter(v => !v.is_clickbait);
-    }
-    
-    // 7. Interleave Consolidated and Gems (one of each, sorted by score)
-    const consolidatedList = filteredList.filter(v => v.type === "consolidated");
-    const gemsList = filteredList.filter(v => v.type === "gem");
-    
-    // Sort separately
-    consolidatedList.sort((a, b) => b.score - a.score || b.view_count - a.view_count);
-    gemsList.sort((a, b) => b.score - a.score || b.view_count - a.view_count);
-    
-    const interleaved = [];
-    let i = 0, j = 0;
-    while (i < consolidatedList.length || j < gemsList.length) {
-        if (i < consolidatedList.length) {
-            interleaved.push(consolidatedList[i]);
-            i++;
+        consolidatedList.sort((a, b) => b.score - a.score || b.view_count - a.view_count);
+        gemsList.sort((a, b) => b.score - a.score || b.view_count - a.view_count);
+        
+        const interleaved = [];
+        let i = 0, j = 0;
+        while (i < consolidatedList.length || j < gemsList.length) {
+            if (i < consolidatedList.length) {
+                interleaved.push(consolidatedList[i]);
+                i++;
+            }
+            if (j < gemsList.length) {
+                interleaved.push(gemsList[j]);
+                j++;
+            }
         }
-        if (j < gemsList.length) {
-            interleaved.push(gemsList[j]);
-            j++;
-        }
+        
+        loadedVideoIds.clear();
+        interleaved.forEach(v => loadedVideoIds.add(v.id));
+        
+        videoCountBadge.textContent = `${loadedVideoIds.size} videos`;
+        
+        renderGrid(interleaved, isAppend);
+    } catch (error) {
+        console.error("Error in processAndRenderVideos:", error);
+        throw error; // Let the fetch catch block handle and display error message
     }
-    
-    // Sync loaded video IDs track
-    loadedVideoIds.clear();
-    interleaved.forEach(v => loadedVideoIds.add(v.id));
-    
-    // Update count indicator
-    videoCountBadge.textContent = `${loadedVideoIds.size} videos`;
-    
-    // Render Grid
-    renderGrid(interleaved, isAppend);
 }
 
 // Render video cards inside the feed grid container
@@ -619,7 +631,7 @@ function renderGrid(videosList, isAppend = false) {
         
         const durationStr = formatDuration(video.duration);
         const viewsStr = formatViews(video.view_count);
-        const reasonsHtml = video.reasons.map(r => `<li class="flex items-center gap-1.5"><span class="w-1 h-1 rounded-full bg-zinc-500"></span>${r}</li>`).join("");
+        const reasonsHtml = (video.reasons || ["Passed quality checks (Neutral)"]).map(r => `<li class="flex items-center gap-1.5"><span class="w-1 h-1 rounded-full bg-zinc-500"></span>${r}</li>`).join("");
 
         const card = document.createElement("div");
         card.id = `video-card-${video.id}`;
@@ -719,6 +731,31 @@ function formatUploadDate(dateStr) {
     return `${parseInt(d)} ${months[parseInt(m) - 1]} ${y}`;
 }
 
+// Format duration seconds to H:MM:SS or M:SS
+function formatDuration(seconds) {
+    if (!seconds || seconds <= 0) return "";
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    
+    if (h > 0) {
+        return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    }
+    return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+// Format view count to K or M notation
+function formatViews(views) {
+    if (!views || views <= 0) return "No views";
+    if (views >= 1000000) {
+        return `${(views / 1000000).toFixed(1).replace(/\.0$/, '')}M views`;
+    }
+    if (views >= 1000) {
+        return `${(views / 1000).toFixed(1).replace(/\.0$/, '')}K views`;
+    }
+    return `${views} views`;
+}
+
 // Log Thumbs Feedback and re-score local list
 function submitFeedback(videoId, action) {
     const card = document.getElementById(`video-card-${videoId}`);
@@ -739,47 +776,32 @@ function submitFeedback(videoId, action) {
 
     // Apply learning memory inside browser localStorage
     if (action === 'like') {
-        // Channel weight add +15
         channelWeights[video.channel] = (channelWeights[video.channel] || 0) + 15;
-        
-        // Keywords weight add +3
         const keywords = extractKeywords(video.title);
         keywords.forEach(kw => {
             keywordWeights[kw] = (keywordWeights[kw] || 0) + 3;
         });
-        
-        // Mark as seen
         seenVideoIds.add(videoId);
     } 
     else if (action === 'dislike') {
-        // Channel weight subtract -30 (soft blacklist)
         channelWeights[video.channel] = (channelWeights[video.channel] || 0) - 30;
-        
-        // Keywords weight subtract -5
         const keywords = extractKeywords(video.title);
         keywords.forEach(kw => {
             keywordWeights[kw] = (keywordWeights[kw] || 0) - 5;
         });
-        
-        // Mark as seen
         seenVideoIds.add(videoId);
     } 
     else if (action === 'skip') {
-        // Simply mark as seen to hide it
         seenVideoIds.add(videoId);
     }
 
-    // Save and update UI
     savePreferencesToStorage();
     renderPreferencesList();
     
-    // Immediate local updates
     if (action !== 'like' && card) {
         setTimeout(() => {
             card.remove();
             loadedVideoIds.delete(videoId);
-            
-            // Remove from local raw list so it's not re-scrawled
             currentRawVideos = currentRawVideos.filter(v => v.id !== videoId);
             videoCountBadge.textContent = `${loadedVideoIds.size} videos`;
             
@@ -788,20 +810,17 @@ function submitFeedback(videoId, action) {
             }
         }, 300);
     } else {
-        // Likes keep rendering but prompt recalculation of scores
         processAndRenderVideos(currentRawVideos, false);
     }
 }
 
 // Render weights display on sidebar
 function renderPreferencesList() {
-    // Sort channels
     const channels = Object.entries(channelWeights)
         .map(([name, weight]) => ({ name, weight }))
         .filter(c => c.weight !== 0)
         .sort((a, b) => b.weight - a.weight);
 
-    // Sort keywords
     const keywords = Object.entries(keywordWeights)
         .map(([name, weight]) => ({ name, weight }))
         .filter(kw => kw.weight !== 0)
