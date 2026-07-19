@@ -45,6 +45,15 @@ try {
     seenVideoIds = new Set();
 }
 
+let bannedChannels = new Set();
+try {
+    const bannedArray = JSON.parse(localStorage.getItem('yt_cleaner_banned_channels')) || [];
+    bannedChannels = new Set(bannedArray);
+} catch (e) {
+    console.error("Failed to parse banned channels from localStorage:", e);
+    bannedChannels = new Set();
+}
+
 let customSeeds = { general: [], entertainment: [], music: [], education: [] };
 try {
     const parsed = JSON.parse(localStorage.getItem('yt_cleaner_custom_seeds'));
@@ -307,6 +316,8 @@ function setupEventListeners() {
             channelWeights = {};
             keywordWeights = {};
             seenVideoIds.clear();
+            bannedChannels.clear();
+            localStorage.removeItem('yt_cleaner_banned_channels');
             savePreferencesToStorage();
             renderPreferencesList();
             processAndRenderVideos(currentRawVideos, false);
@@ -625,7 +636,7 @@ function fetchMoreVideos() {
 // Score, Filter, and Interleave Videos on Client-Side
 function processAndRenderVideos(rawVideosList, isAppend = false) {
     try {
-        let eligible = rawVideosList.filter(v => v && v.id && !seenVideoIds.has(v.id));
+        let eligible = rawVideosList.filter(v => v && v.id && !seenVideoIds.has(v.id) && !bannedChannels.has(v.channel));
         
         // Filter by detected language if language is selected (not mixed) (Upgrade A)
         if (currentLang === "es") {
@@ -732,7 +743,7 @@ function processAndRenderVideos(rawVideosList, isAppend = false) {
         renderGrid(interleaved, isAppend);
     } catch (error) {
         console.error("Error in processAndRenderVideos:", error);
-        throw error; // Let the fetch catch block handle and display error message
+        throw error;
     }
 }
 
@@ -767,7 +778,6 @@ function renderGrid(videosList, isAppend = false) {
         const card = document.createElement("div");
         card.id = `video-card-${video.id}`;
         card.className = "group relative rounded-lg border border-border bg-card text-card-foreground shadow-sm transition-all duration-300 hover:border-zinc-700 flex flex-col justify-between overflow-hidden";
-        
         card.innerHTML = `
             <div>
                 <!-- Thumbnail -->
@@ -781,6 +791,14 @@ function renderGrid(videosList, isAppend = false) {
                         >
                     </a>
                     ${durationStr ? `<span class="absolute bottom-2 right-2 bg-black/80 px-1.5 py-0.5 rounded text-[10px] font-bold tracking-tight text-white">${durationStr}</span>` : ''}
+                    
+                    <!-- Sponsor Warning Badge (Option 4) -->
+                    <div id="sponsor-badge-${video.id}" class="absolute top-2 left-2 hidden">
+                        <span class="bg-amber-500/90 text-zinc-950 text-[9px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1 shadow font-heading select-none">
+                            <i data-lucide="alert-triangle" class="h-2.5 w-2.5 text-zinc-950"></i>
+                            Sponsor
+                        </span>
+                    </div>
                 </div>
 
                 <!-- Text metadata -->
@@ -800,7 +818,7 @@ function renderGrid(videosList, isAppend = false) {
                         <span>•</span>
                         <span class="${typeColorClass}">${typeLabel}</span>
                         <span>•</span>
-                        <span class="${scoreColorClass} font-mono">Score: ${video.score}</span>
+                        <span class="${scoreColorClass} font-mono font-bold">Score: ${video.score}</span>
                     </div>
 
                     <!-- Explanations details -->
@@ -819,7 +837,7 @@ function renderGrid(videosList, isAppend = false) {
             </div>
 
             <!-- Footer Action Controls (English) -->
-            <div class="p-4 pt-0 border-t border-border/30 mt-auto flex items-center justify-between gap-2">
+            <div class="p-4 pt-0 border-t border-border/30 mt-auto flex items-center justify-between gap-1.5">
                 <button 
                     onclick="submitFeedback('${video.id}', 'like')"
                     class="flex-1 h-8 rounded-md bg-secondary hover:bg-emerald-950/40 border border-transparent hover:border-emerald-900/30 text-muted-foreground hover:text-emerald-400 text-[11px] font-bold transition-colors flex items-center justify-center gap-1 font-heading"
@@ -843,11 +861,24 @@ function renderGrid(videosList, isAppend = false) {
                 >
                     <i data-lucide="eye-off" class="h-3.5 w-3.5"></i>
                 </button>
+                <button 
+                    onclick="banChannel('${video.channel.replace(/'/g, "\\'")}')"
+                    class="h-8 w-8 rounded-md bg-secondary hover:bg-rose-950/40 border border-transparent hover:border-rose-900/30 text-muted-foreground hover:text-rose-400 transition-colors flex items-center justify-center animate-fade-in"
+                    title="Ban channel (never show again)"
+                >
+                    <i data-lucide="ban" class="h-3.5 w-3.5"></i>
+                </button>
             </div>
         `;
         
         feedGrid.appendChild(card);
     });
+
+    // Bulk query SponsorBlock segments for all active videos in the grid (Option 4)
+    const activeVideoIds = videosList.map(v => v.id);
+    if (activeVideoIds.length > 0) {
+        fetchSponsorSegmentsBulk(activeVideoIds);
+    }
     
     lucide.createIcons();
 }
@@ -1045,4 +1076,106 @@ function detectLanguage(title) {
     if (/[áéíóúñÁÉÍÓÚÑ]/i.test(title)) return "es";
     
     return "unknown";
+}
+
+// Ban a specific channel entirely (Option 5)
+window.banChannel = function(channelName) {
+    if (!channelName) return;
+    if (confirm(`Are you sure you want to ban and block the channel "${channelName}" entirely?`)) {
+        bannedChannels.add(channelName);
+        try {
+            localStorage.setItem('yt_cleaner_banned_channels', JSON.stringify(Array.from(bannedChannels)));
+        } catch (e) {
+            console.error("Failed to save banned channels:", e);
+        }
+        
+        // Find all cards from this channel, animate and remove them
+        document.querySelectorAll(".group").forEach(card => {
+            const chanText = card.querySelector(".text-muted-foreground")?.textContent;
+            if (chanText === channelName) {
+                card.classList.add("scale-95", "opacity-0");
+            }
+        });
+        
+        setTimeout(() => {
+            processAndRenderVideos(currentRawVideos, false);
+        }, 300);
+    }
+};
+
+// Fetch SponsorBlock skip segments in bulk (Option 4)
+async function fetchSponsorSegmentsBulk(videoIds) {
+    if (!videoIds || videoIds.length === 0) return;
+    try {
+        const response = await fetch("https://sponsor.ajay.app/api/skipSegments", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(videoIds)
+        });
+        
+        if (response.status === 200) {
+            const data = await response.json();
+            if (Array.isArray(data)) {
+                data.forEach(item => {
+                    const videoID = item.videoID;
+                    const segments = item.segments || [];
+                    
+                    // Filter sponsor category segments
+                    const sponsorSegs = segments.filter(seg => seg.category === "sponsor");
+                    if (sponsorSegs.length > 0) {
+                        let totalDuration = 0;
+                        sponsorSegs.forEach(seg => {
+                            if (seg.segment && seg.segment.length >= 2) {
+                                totalDuration += (seg.segment[1] - seg.segment[0]);
+                            }
+                        });
+                        
+                        if (totalDuration > 0) {
+                            showSponsorBadge(videoID, Math.round(totalDuration));
+                        }
+                    }
+                });
+            }
+        }
+    } catch (error) {
+        console.warn("Failed to fetch SponsorBlock segments:", error);
+    }
+}
+
+// Display Sponsor Warning Badge on the video card thumbnail (Option 4)
+function showSponsorBadge(videoId, seconds) {
+    const badge = document.getElementById(`sponsor-badge-${videoId}`);
+    if (!badge) return;
+    
+    badge.classList.remove("hidden");
+    const mins = Math.round(seconds / 60);
+    const timeLabel = mins > 0 ? `Sponsor ~${mins}m` : `Sponsor ${seconds}s`;
+    
+    const badgeSpan = badge.querySelector("span");
+    if (badgeSpan) {
+        badgeSpan.innerHTML = `
+            <i data-lucide="alert-triangle" class="h-2.5 w-2.5"></i>
+            ${timeLabel}
+        `;
+    }
+    
+    // Add sponsor to reasons list if available
+    const card = document.getElementById(`video-card-${videoId}`);
+    if (card) {
+        const detailsList = card.querySelector("details ul");
+        if (detailsList) {
+            // Check if already exists
+            if (!detailsList.querySelector(".sponsor-reason-item")) {
+                const li = document.createElement("li");
+                li.className = "sponsor-reason-item flex items-center gap-1.5 text-amber-400 font-medium";
+                li.innerHTML = `<span class="w-1 h-1 rounded-full bg-amber-400"></span>Sponsor detected: ~${mins > 0 ? mins + 'm' : seconds + 's'}`;
+                detailsList.appendChild(li);
+            }
+        }
+    }
+    
+    // Refresh lucide icons
+    lucide.createIcons();
 }
